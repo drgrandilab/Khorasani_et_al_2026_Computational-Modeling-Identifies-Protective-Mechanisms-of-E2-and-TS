@@ -1,0 +1,655 @@
+clear all;
+clc;
+close all;
+  
+%% READ ME 
+% input initial values
+% W
+% EC50
+% Ymax (DIDNT ASK!)
+% for each purturbed model I need to run the code for validation data and
+% calculate the accuracy
+tic
+%% initializing parameters
+disp('###############################')
+disp('Check the Inputs and PATH!')
+disp('###############################')
+
+
+%% set the parameters
+% iteration no to reach SS
+% Microarrays were performed on human ACFs treated with 100 nM CT
+% or vehicle for 48 h.
+It2reachSS =2;
+itt = 2;
+flgVarNo = input('1: variation, 3: 3 variation, 5: 5 variations? ');
+if flgVarNo==1
+varVal = input('1: 0.1, 2: 0.25? ');
+end
+
+if varVal==1
+    variationRatioArr = [0.1];
+elseif varVal==2
+    variationRatioArr = [0.25];
+end
+
+SzVarArr = length(variationRatioArr);
+
+perf_ini = zeros(SzVarArr,itt);
+
+flgPar = input('1: inp, 2:W, 3:EC50, 4:ymax? ');
+
+flg_hr = input('1: E2, 2: TS? ');
+
+flg_st =  input('1: Ang, 2: tgfb? ');
+
+% for EC50 %%%%%%%%%%%
+%% receptors2study = {'AT1R', 'TGFB1R', 'B1int', ...
+%     'gp130', 'IL1RI', 'TNFaR','BAR','PDGFR','ETAR', 'NPRA', ...
+%     'ERX','ERB','GPR30', 'AR',...
+%     'FGFR','MR','TLR'};
+receptors2study = {'AT1R', 'TGFB1R', ...
+    'ERX','ERB','GPR30', 'AR'};
+
+%% load data
+% Define the Excel file name to load mRNA data
+VersionFile = input('File version? ');
+
+if VersionFile == 99 || VersionFile == 998 || VersionFile == 999 
+% it shows the order in the netwrok inputs (model excel file)
+allnetInputs = {'AngII', 'TGFB', 'mechanical' ...
+            ,'IL6','IL1','TNFa','NE','PDGF','ET1', 'NP', 'Forskolin', ...
+            'E2','TS',...
+            'FGF23','ADL','LPS','BMP2','TNC'};
+netInputs = {'AngII', 'TGFB', 'mechanical' ...
+            ,'IL6','IL1','TNFa','NE','PDGF','ET1', 'NP', 'Forskolin', ...
+            'FGF23','ADL','LPS','BMP2','TNC'};
+inputPrefered_order = {'TGFB','AngII',  'mechanical' ...
+    'ET1','PDGF','TNFa','IL1','IL6','NE','Forskolin','NP',...
+    'FGF23','ADL','LPS','BMP2','TNC'};
+
+elseif versionF == 130
+% it shows the order in the netwrok inputs (model excel file)
+allnetInputs = {'AngII', 'TGFB', 'mechanical' ...
+            ,'IL6','IL1','TNFa','NE','PDGF','ET1', 'NP', 'Forskolin', ...
+            'E2','PG','TS',...
+            'FGF23','ADL','LPS','BMP2','TNC','FGF21'};
+netInputs = {'AngII', 'TGFB', 'mechanical' ...
+            ,'IL6','IL1','TNFa','NE','PDGF','ET1', 'NP', 'Forskolin', ...
+            'FGF23','ADL','LPS','BMP2','TNC'};
+inputPrefered_order = {'TGFB','AngII',  'mechanical' ...
+    'ET1','PDGF','TNFa','IL1','IL6','NE','Forskolin','NP',...
+    'FGF23','ADL','LPS','BMP2','TNC'};
+else
+    input('IT SEEMS THAT THIS CODE IS NOT DESIGNED FOR THIS SPECIFIC VERSION.');
+end
+
+% outputPrefered_order = {'CI', 'CIII', 'aSMA','PAI1',...
+%     'periostin','fibronectin', 'proliferation','CTGF',...
+%     'migration', 'EDAFN',  'CImRNA', 'CIIImRNA',...
+%     'TIMP1','TIMP2','MMP1', 'MMP2', 'MMP9','MMP14','latentTGFB','IL6'};
+
+outputPrefered_order = {'CI', 'CIII','CImRNA', 'CIIImRNA',...
+    'PAI1','fibronectin', ...
+    'TIMP1','TIMP2','MMP1', 'MMP2', 'MMP9','MMP14',...
+    'aSMA','periostin',...
+    'migration', 'EDAFN',...
+    'proliferation','CTGF','latentTGFB',...
+    'IL6'};
+
+fname = ['Khorasani_Atrial_Fibroblast_Model_2026.xlsx'];
+pathname = ['models/'];
+
+%% read model file
+T1 = readtable([pathname,fname],'Sheet',1); 
+T2 = readtable([pathname,fname],'Sheet',2); 
+specID = T1.ID;
+Ymax_v = T1.Ymax;
+reactionRulesname = T2.Rule;
+W_v = T2.Weight;
+EC50_V = T2.EC50;
+Inps_V = W_v(1:length(allnetInputs));
+
+% determine initial values
+initial_ymax_V = mode(Ymax_v);
+initial_inp_V = mode(Inps_V);
+initial_W_V = mode(W_v);
+initial_EC_V = mode(EC50_V);
+
+%% determine inputs and their corresponding data
+[~, NetNodesInd] = ismember(outputPrefered_order, specID);
+
+sz1 = size(netInputs,2);
+sz2 = size(outputPrefered_order,2);
+
+
+%% run netflux in desired conditions, inputs
+szInp = length(allnetInputs);
+if flgPar==1
+for counter =1:SzVarArr
+    variationRatio = variationRatioArr(counter);
+    a = initial_inp_V*(1-variationRatio); b = initial_inp_V*(1+variationRatio);
+    popVar = a + (b-a).*rand(szInp,itt);
+    for ii=1:itt
+        % determine the flags
+        flgY0 = 1;
+        flgYmx = 0;yMax_ind = [];yMax_val = [];
+        flgEC50 = 0;EC50V = [];
+    
+        % SS and BL
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+    
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,0,[],0,[],[],0,[]);
+        
+        yLast_BL_val = yCum(end,:);
+    
+        %% cal desired condition Val E2/TS=0, Ang=0.7/TGFB=0.7
+        if flg_st ==1
+            key = 'AngII';
+        else
+            key = 'TGFB';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind1 = inPut_indeces; 
+        
+        if flg_hr==1
+            key = 'E2';
+        else
+            key = 'TS';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind2 = inPut_indeces; 
+        
+        % E2/TS=0, Ang=0.7/TGFB=0.7
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=0;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat1_{counter,ii} = yCum;
+
+        % E2/TS=0.25, Ang=0.7/TGFB=0.7
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=0.25;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat2_{counter,ii} = yCum;
+
+        % E2/TS=0.5, Ang=0.7/TGFB=0.7
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=0.5;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat3_{counter,ii} = yCum;
+
+        % E2/TS=0.75, Ang=0.7/TGFB=0.7
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=0.75;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat4_{counter,ii} = yCum;
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=1;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat5_{counter,ii} = yCum;
+
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7, samd3-KD
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=1;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+
+        indd = find(ismember(specID,'smad3'));
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd],[0.1],0,[]);
+        yCumMat6_{counter,ii} = yCum;
+
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7, ROS,JNK-KD
+        indices_in_orig_w_sti = [1:szInp];
+        W_Mat_sti = popVar(:,ii);
+        W_Mat_sti(ind1)=0.7;
+        W_Mat_sti(ind2)=1;
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+
+        indd = find(ismember(specID,['ROS','']));
+        indd1 = find(ismember(specID,['JNK','']));
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd,indd1],[.1,.1],0,[]);
+        yCumMat7_{counter,ii} = yCum;
+    
+        if mod(ii,10)==0
+            disp(ii);
+            disp(counter);
+            toc
+        end
+    end%itt
+end % counter
+end
+
+%% run netflux in desired conditions, weights (W)
+szRule = length(reactionRulesname);
+if flgPar == 2
+szW = szRule-szInp;
+for counter =1:SzVarArr
+    variationRatio = variationRatioArr(counter);
+    a = initial_W_V*(1-variationRatio); b = initial_W_V*(1+variationRatio);%=1;
+    popVar = a + (b-a).*rand(szW,itt);
+    % popVar = min(popVar,1);
+    % popVar = max(popVar,0);
+    for ii=1:itt
+        % determine the flags
+        flgY0 = 1;
+        flgYmx = 0;yMax_ind = [];yMax_val = [];
+        flgEC50 = 0;
+        EC50V = [];
+    
+        % SS and BL
+        indices_in_orig_w_sti = [szInp+1:szRule];
+        W_Mat_sti = popVar(:,ii);
+    
+        indices_in_orig_w = indices_in_orig_w_sti;
+        W_Mat = W_Mat_sti;
+    
+        % check if there are any NON-1 W
+        % ind = find(W_v(indices_in_orig_w) ~= 1); 
+        % indices_in_orig_w(ind) = [];
+        % W_Mat(ind) = [];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS ,0 ,[],0,[],[],0,[]);
+        
+        yLast_BL_val = yCum(end,:);
+    
+        %% cal desired condition Val E2/TS=0, Ang=0.7/TGFB=0.7
+        if flg_st ==1
+            key = 'AngII';
+        else
+            key = 'TGFB';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind1 = inPut_indeces; 
+        
+        if flg_hr==1
+            key = 'E2';
+        else
+            key = 'TS';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind2 = inPut_indeces; 
+        
+        % E2/TS=0, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0;W_Mat];
+        indices_in_orig_w = [ind1,ind2,indices_in_orig_w];
+        
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat1_{counter,ii} = yCum;
+
+        % E2/TS=0.25, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.25;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat2_{counter,ii} = yCum;
+
+        % E2/TS=0.5, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.5;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat3_{counter,ii} = yCum;
+
+        % E2/TS=0.75, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.75;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat4_{counter,ii} = yCum;
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7
+        W_Mat1 = [.7;1;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],0,[]);
+        yCumMat5_{counter,ii} = yCum;
+
+
+        % E2/TS=.25, Ang=0.7/TGFB=0.7, samd3-KD
+        W_Mat1 = [.7;.25;W_Mat];
+        indd = find(ismember(specID,'smad3'));
+
+        % [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+        %     W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd],[0.1],0,[]);
+        % yCumMat6_{counter,ii} = yCum;
+
+
+        % E2/TS=.25, Ang=0.7/TGFB=0.7, ROS,JNK-KD
+        indd = find(ismember(specID,['ROS','']));
+        indd1 = find(ismember(specID,['JNK','']));
+        % 
+        % [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+        %     W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd,indd1],[.1,.1],0,[]);
+        % yCumMat7_{counter,ii} = yCum;
+
+        if mod(ii,10)==0
+            disp(ii);
+            disp(counter);
+            toc
+            disp('============================');
+        end
+    
+    end%itt
+end % counter
+end 
+
+%% run netflux in desired conditions, EC50 (K)
+if flgPar == 3
+     popVar = ones(szRule,itt);
+for counter =1:SzVarArr
+    variationRatio = variationRatioArr(counter);
+    a = initial_EC_V*(1-variationRatio); b = initial_EC_V*(1+variationRatio);
+    % popVar = a + (b-a).*rand(szRule,itt);
+    % rndd = a + (b-a).*rand(1,itt);
+    %  popVar = repmat(rndd,szRule,1);
+    for ii=1:itt
+        % determine the flags
+        flgY0 = 1;
+        flgYmx = 0;yMax_ind = [];yMax_val = [];
+        flgEC50 = 1;
+    
+        % SS and BL
+        indices_in_orig_w = [];
+        W_Mat = zeros(1,size(indices_in_orig_w,2));
+        flgOK = 1  ;
+        while flgOK==1
+            popVarT = a + (b-a).*rand(szRule,1);
+            EC50V = popVarT';
+        
+            [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+                W_Mat, fname,pathname, 4 ,0,[],0,[],[],1,EC50V);
+            
+            yLast_BL_valT = yCum(end,:);
+            allrecp_ind = find(ismember(specID,receptors2study));
+            Valrecp = yLast_BL_valT(allrecp_ind);
+            if isempty( find(Valrecp> initial_inp_V*1.5))
+                flgOK = 0;
+            end
+        end
+        popVar(:,ii) = popVarT;
+        EC50V = popVarT';
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+                W_Mat, fname,pathname, It2reachSS ,0,[],0,[],[],1,EC50V);
+            
+        yLast_BL_val = yCum(end,:);
+        %% cal desired condition Val E2/TS=0, Ang=0.7/TGFB=0.7
+        if flg_st ==1
+            key = 'AngII';
+        else
+            key = 'TGFB';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind1 = inPut_indeces; 
+        
+        if flg_hr==1
+            key = 'E2';
+        else
+            key = 'TS';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind2 = inPut_indeces; 
+        
+        % E2/TS=0, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0;W_Mat];
+        indices_in_orig_w = [ind1,ind2,indices_in_orig_w];
+        
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],1,EC50V);
+        yCumMat1_{counter,ii} = yCum;
+
+        % E2/TS=0.25, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.25;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],1,EC50V);
+        yCumMat2_{counter,ii} = yCum;
+
+        % E2/TS=0.5, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.5;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],1,EC50V);
+        yCumMat3_{counter,ii} = yCum;
+
+        % E2/TS=0.75, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.75;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],1,EC50V);
+        yCumMat4_{counter,ii} = yCum;
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7
+        W_Mat1 = [.7;1;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,0,[],[],1,EC50V);
+        yCumMat5_{counter,ii} = yCum;
+
+
+        % E2/TS=.25, Ang=0.7/TGFB=0.7, samd3-KD
+        W_Mat1 = [.7;.25;W_Mat];
+        indd = find(ismember(specID,'smad3'));
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd],[0.1],1,EC50V);
+        yCumMat6_{counter,ii} = yCum;
+
+
+        % E2/TS=.25, Ang=0.7/TGFB=0.7, ROS,JNK-KD
+        indd = find(ismember(specID,['ROS','']));
+        indd1 = find(ismember(specID,['JNK','']));
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd,indd1],[.1,.1],1,EC50V);
+        yCumMat7_{counter,ii} = yCum;
+        
+        if mod(ii,10)==0
+            disp(ii);
+            disp(counter);
+            toc
+        end
+    end%itt
+end % counter
+
+% fname = "data_2026.mat";
+% save(fname, "A")
+
+end
+%% run netflux in desired conditions, Ymax
+szSpec = length(specID);
+if flgPar == 4  
+for counter =1:SzVarArr
+    variationRatio = variationRatioArr(counter);
+    a = initial_ymax_V*(1-variationRatio); b = initial_ymax_V*(1+variationRatio);
+    popVar = a + (b-a).*rand(szSpec,itt);
+    for ii=1:itt
+        % determine the flags
+        flgY0 = 1;
+        flgEC50 = 0;
+        flgYmx = 1;
+        yMax_ind = [];
+        yMax_val = [];
+
+        % SS and BL
+        indices_in_orig_w = [];
+        W_Mat = zeros(1,size(indices_in_orig_w,2));
+        
+        yMax_ind = 1:szSpec;
+        yMax_val = popVar(:,ii)';
+    
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat, fname,pathname, It2reachSS ,0,[],flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        
+        yLast_BL_val = yCum(end,:);
+    
+        %% cal desired condition Val E2/TS=0, Ang=0.7/TGFB=0.7
+        if flg_st ==1
+            key = 'AngII';
+        else
+            key = 'TGFB';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind1 = inPut_indeces; 
+        
+        if flg_hr==1
+            key = 'E2';
+        else
+            key = 'TS';
+        end
+        inPut_indeces = find(ismember(allnetInputs, key));
+        ind2 = inPut_indeces; 
+        
+        % E2/TS=0, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0;W_Mat];
+        indices_in_orig_w = [ind1,ind2,indices_in_orig_w];
+        
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        yCumMat1_{counter,ii} = yCum;
+
+        % E2/TS=0.25, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.25;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        yCumMat2_{counter,ii} = yCum;
+
+        % E2/TS=0.5, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.5;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        yCumMat3_{counter,ii} = yCum;
+
+        % E2/TS=0.75, Ang=0.7/TGFB=0.7
+        W_Mat1 = [0.7;0.75;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        yCumMat4_{counter,ii} = yCum;
+
+        % E2/TS=1, Ang=0.7/TGFB=0.7
+        W_Mat1 = [.7;1;W_Mat];
+
+        [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+            W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,flgYmx,yMax_ind,yMax_val,flgEC50,[]);
+        yCumMat5_{counter,ii} = yCum;
+
+
+        % % E2/TS=.25, Ang=0.7/TGFB=0.7, samd3-KD
+        % W_Mat1 = [.7;.25;W_Mat];
+        % indd = find(ismember(specID,'smad3'));
+        % 
+        % [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+        %     W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd],[0.1],flgEC50,[]);
+        % yCumMat6_{counter,ii} = yCum;
+        % 
+        % 
+        % % E2/TS=.25, Ang=0.7/TGFB=0.7, ROS,JNK-KD
+        % indd = find(ismember(specID,['ROS','']));
+        % indd1 = find(ismember(specID,['JNK','']));
+        % 
+        % [~,~,~, yCum] = Netflux_NJ_for_predefined_inp_and_y0_ymax_V4(indices_in_orig_w, ...
+        %     W_Mat1, fname,pathname, It2reachSS,1,yLast_BL_val,1,[indd,indd1],[.1,.1],flgEC50,[]);
+        % yCumMat7_{counter,ii} = yCum;
+        
+        if mod(ii,10)==0
+            disp(ii);
+            disp(counter);
+            toc
+        end
+    end%itt
+end % counter
+
+% fname = "data_2026.mat";
+% save(fname, "A")
+
+end
+
+%% ploting
+
+if flgPar ==1
+    postt = 'inp';
+elseif flgPar ==2
+    postt = 'W';
+elseif flgPar ==3
+    postt = 'EC50';
+elseif flgPar ==4
+    postt = 'Ymax';
+end
+
+
+if flg_st ==1
+    key1 = 'AngII';
+else
+    key1 = 'TGFB';
+end
+inPut_indeces = find(ismember(allnetInputs, key));
+ind1 = inPut_indeces; 
+
+if flg_hr==1
+    key2 = 'E2';
+else
+    key2 = 'TS';
+end
+% save(['cal_robustness_myvar2026_',num2str(floor(rand()*1000)),'_',postt,'_',key1,'_',key2,'.mat']);
+for i =1:5
+    r = floor(rand()*1000);
+    namee = ['cal_r_yCumMat',num2str(i),'_',postt,'_',key1,'_',key2,'_',num2str(r),'.mat'];
+    nameVar = ['yCumMat',num2str(i),'_'];
+    save(namee,nameVar);
+end
+namee = ['cal_r_popVar','_',postt,'_',key1,'_',key2,'_',num2str(r),'.mat'];
+save(namee,'popVar');
+toc
