@@ -4,7 +4,7 @@ close all;
 %% address to read the data
 VersionFile = 99;
 It2reachSS = 20;
-flg_Sel_traces = input('Do you want 1: selected traces or 0: all traces  ? ');
+flg_Sel_traces = input('Do you want 1: selected traces or 0: all traces  ?1? ');
 
 disp('check the initial set values, they need to be aligned ');
 disp('with the values in signalling_pathways_identification_V7.m code.');
@@ -48,7 +48,7 @@ sz_inp_2 = size(input_nodes_to_study,2);
 
 disp('which set 1:CI/CIII, 2:FA, 3:fib, 4, 5:pro => Ang/TGFB+E2,');
 disp('6(Ang+TS)');
-flg_i = input('13 (all nodes for CI) ');
+flg_i = input('1,2,...6? ');
 if flg_i==1
     output_nodes = {'CI', 'CIII'};
     if flginp==1

@@ -19,22 +19,14 @@ time_FL_thr = 5;
 
 % Ctl condition
 disp('0: Baseline');
-disp('1: AngII, 2,3,4: AngII+E2/PG/TS, ');
-disp('5: TGFB, 6,7,8: TGFB+E2/PG/TS, ');
-disp('9,10,11: PG,TS,E2 ')
-disp('12: ET1, 13,14,15: ET1+E2/PG/TS, ')
-disp('16: AngII+E2 (E2: 0.75)')
-disp('17: TGFB+E2 (E2: 0.75) ')
+disp('1: AngII, 2: AngII+E2, 4:AngII+TS, ');
+disp('5: TGFB, :TGFB+E2, 8:TGFB+TS, ');
 ctl_cond = input('choose the Ctl condition: ');
 
 % perturbed condition
 disp('0: Baseline');
-disp('1: AngII, 2,3,4: AngII+E2/PG/TS, ');
-disp('5: TGFB, 6,7,8: TGFB+E2/PG/TS, ');
-disp('9,10,11: PG,TS,E2 ')
-disp('12: ET1, 13,14,15: ET1+E2/PG/TS, ')
-disp('16: AngII+E2 (E2: 0.75)')
-disp('17: TGFB+E2 (E2: 0.75) ')
+disp('1: AngII, 2: AngII+E2, 4:AngII+TS, ');
+disp('5: TGFB, 6:TGFB+E2, 8:TGFB+TS, ');
 pert_cond = input('choose the perturbed condition: ');
 
 inp_nodes_pert = what_pert_cond(pert_cond);
